@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Read-aloud check · Damon Pieri</title>
+<meta name="description" content="Align a reading passage with what a speech recognizer heard, count reading errors, calculate WCPM, and flag likely recognizer mistakes.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Literata:opsz,wght@7..72,400;7..72,600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root{
+  --paper:#f5f6f8; --sheet:#fff; --ink:#171d2c; --muted:#596277; --rule:#dfe3ea;
+  --accent:#2343c4; --hi:#ffe066;
+  --omit:#c2410c; --ins:#7c3aed; --sub:#a16207; --ok:#15803d;
+  --display:"Bricolage Grotesque","Avenir Next","Segoe UI",system-ui,sans-serif;
+  --body:"Literata",Georgia,serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --paper:#0f131b; --sheet:#161c27; --ink:#e7eaf1; --muted:#9ba4b8; --rule:#283143;
+  --accent:#8ea2ff; --hi:#6b5712;
+  --omit:#fb923c; --ins:#c4a5ff; --sub:#facc15; --ok:#4ade80; color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--body);font-size:17px;line-height:1.6;padding:0 16px}
+.wrap{max-width:1000px;margin:0 auto;padding:48px 0 64px;display:grid;gap:28px}
+a{color:var(--accent);text-underline-offset:3px}
+a:focus-visible,button:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:3px}
+h1,h2{font-family:var(--display);line-height:1.08;margin:0}
+h1{font-size:clamp(36px,6vw,60px);font-weight:800;letter-spacing:-.02em}
+p{margin:0}
+.label{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.lede{max-width:64ch;font-size:clamp(17px,2vw,19px)}
+.plate{background:var(--sheet);border:1px solid var(--rule);border-radius:10px;padding:clamp(18px,3vw,32px);display:grid;gap:22px}
+.inputs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.field{display:grid;gap:6px;min-width:0}
+.field label{font-family:var(--mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+textarea,input[type=number]{font-family:var(--body);font-size:15.5px;line-height:1.5;color:var(--ink);background:var(--paper);border:1px solid var(--rule);border-radius:6px;padding:10px 12px;width:100%}
+textarea{min-height:140px;resize:vertical}
+.controls{display:flex;flex-wrap:wrap;gap:12px 16px;align-items:end}
+.controls .field{width:160px}
+button{font-family:var(--mono);font-size:13px;font-weight:600;border-radius:6px;padding:10px 16px;cursor:pointer;border:1px solid var(--ink);background:var(--ink);color:var(--paper)}
+button.ghost{background:transparent;color:var(--ink);border-color:var(--rule)}
+button:hover{opacity:.88}
+.readout{font-size:19px;line-height:2.05;padding:18px 20px;border-left:3px solid var(--hi);background:var(--paper);border-radius:0 6px 6px 0}
+.w{padding:1px 2px;border-radius:3px}
+.w.omit{color:var(--omit);text-decoration:line-through;text-decoration-thickness:2px}
+.w.sub{color:var(--sub);border-bottom:2px solid var(--sub)}
+.w.sub small,.w.ins small{font-family:var(--mono);font-size:11px;margin-left:3px}
+.w.ins{color:var(--ins);font-style:italic}
+.w.flag{background:linear-gradient(transparent 55%,var(--hi) 55%)}
+.stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+.stat{display:grid;gap:2px;padding-top:10px;border-top:2px solid var(--rule)}
+.stat b{font-family:var(--display);font-size:28px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1}
+.stat span{font-family:var(--mono);font-size:11.5px;color:var(--muted);letter-spacing:.04em}
+.stat.omit{border-color:var(--omit)}.stat.sub{border-color:var(--sub)}.stat.ins{border-color:var(--ins)}.stat.ok{border-color:var(--ok)}
+.findings{display:grid;gap:6px;margin:0;padding-left:20px;font-size:15.5px}
+.fine{font-family:var(--mono);font-size:12px;color:var(--muted);line-height:1.55}
+footer{border-top:1px solid var(--rule);padding-top:20px;display:flex;flex-wrap:wrap;gap:8px 24px;justify-content:space-between}
+@media (max-width:720px){.inputs{grid-template-columns:minmax(0,1fr)}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header style="display:grid;gap:14px">
+    <span class="label">Prototype · oral reading fluency</span>
+    <h1>Read-aloud check</h1>
+    <p class="lede">Paste a passage and what a speech recognizer heard. The check aligns the two word by word, counts reading errors, calculates words correct per minute (WCPM), and flags substitutions that look like recognizer mistakes rather than reader mistakes.</p>
+  </header>
+
+  <div class="plate">
+    <div class="inputs">
+      <div class="field"><label for="expected">Passage the student should read</label><textarea id="expected"></textarea></div>
+      <div class="field"><label for="heard">What the recognizer heard</label><textarea id="heard"></textarea></div>
+    </div>
+    <div class="controls">
+      <div class="field"><label for="secs">Reading time (sec)</label><input type="number" id="secs" min="1" value="38"></div>
+      <button id="run" type="button">Run check</button>
+      <button id="reset" class="ghost" type="button">Load sample</button>
+    </div>
+    <div class="readout" id="readout" aria-live="polite"></div>
+    <div class="stats" id="stats"></div>
+    <ul class="findings" id="findings"></ul>
+    <p class="fine">Key: <span class="w omit">omitted</span> · <span class="w sub">substituted<small>heard</small></span> · <span class="w ins">+inserted</span> · <span class="w flag">highlight</span> = sounds alike, check the recognizer first.</p>
+  </div>
+
+  <footer class="fine">
+    <span>Sample passage and transcript written for this demo. No student data.</span>
+    <span>By <a href="https://www.linkedin.com/in/damonpieri">Damon Pieri</a> · built with Claude</span>
+  </footer>
+</main>
+
+<script>
+const SAMPLE_EXPECTED = "The little fox crept through the tall grass at dawn. She stopped at the edge of the stream and listened. A heron stood very still in the water, waiting for a fish to swim past.";
+const SAMPLE_HEARD = "The little fox crept through the tall grass at down. She stopped at the edge of stream and listen. A hair on stood very still in the the water waiting for fish to swim past.";
+const $ = id => document.getElementById(id);
+const norm = s => s.toLowerCase().replace(/[^a-z0-9'\s-]/g, " ").split(/\s+/).filter(Boolean);
+const tokens = s => s.split(/\s+/).filter(Boolean);
+
+// Edit distance between two words, used to judge whether a substitution "sounds alike".
+function lev(a, b) {
+  const d = Array.from({length: a.length + 1}, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++)
+    for (let j = 1; j <= b.length; j++)
+      d[i][j] = Math.min(d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + (a[i-1] === b[j-1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+function alike(a, b) {
+  return a.slice(0, 2) === b.slice(0, 2) || lev(a, b) <= Math.max(1, Math.floor(Math.min(a.length, b.length) / 3));
+}
+
+// Word-level alignment (Levenshtein with backtrace): each step is ok, sub, omit or ins.
+function align(E, H) {
+  const n = E.length, m = H.length, D = Array.from({length: n + 1}, () => new Array(m + 1).fill(0));
+  for (let i = 0; i <= n; i++) D[i][0] = i;
+  for (let j = 0; j <= m; j++) D[0][j] = j;
+  for (let i = 1; i <= n; i++)
+    for (let j = 1; j <= m; j++)
+      D[i][j] = Math.min(D[i-1][j-1] + (E[i-1] === H[j-1] ? 0 : 1), D[i-1][j] + 1, D[i][j-1] + 1);
+  const ops = []; let i = n, j = m;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && D[i][j] === D[i-1][j-1] + (E[i-1] === H[j-1] ? 0 : 1)) { ops.push({t: E[i-1] === H[j-1] ? "ok" : "sub", e: i-1, h: j-1}); i--; j--; }
+    else if (i > 0 && D[i][j] === D[i-1][j] + 1) { ops.push({t: "omit", e: i-1}); i--; }
+    else { ops.push({t: "ins", h: j-1}); j--; }
+  }
+  return ops.reverse();
+}
+const esc = s => s.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function run() {
+  const rawE = tokens($("expected").value), E = norm($("expected").value), H = norm($("heard").value);
+  if (!E.length) { $("readout").textContent = "Add a passage to check."; $("stats").innerHTML = ""; $("findings").innerHTML = ""; return; }
+  const disp = rawE.length === E.length ? rawE : E;
+  const ops = align(E, H); const c = {ok: 0, sub: 0, omit: 0, ins: 0}, flagged = [], html = [];
+  ops.forEach(o => {
+    c[o.t]++;
+    if (o.t === "ok") html.push(`<span class="w">${esc(disp[o.e])}</span>`);
+    else if (o.t === "omit") html.push(`<span class="w omit" title="Omitted">${esc(disp[o.e])}</span>`);
+    else if (o.t === "ins") html.push(`<span class="w ins" title="Inserted">+${esc(H[o.h])}</span>`);
+    else {
+      const f = alike(E[o.e], H[o.h]); if (f) flagged.push(`“${E[o.e]}” heard as “${H[o.h]}”`);
+      html.push(`<span class="w sub${f ? " flag" : ""}" title="Heard: ${esc(H[o.h])}">${esc(disp[o.e])}<small>${esc(H[o.h])}</small></span>`);
+    }
+  });
+  $("readout").innerHTML = html.join(" ");
+  const secs = Math.max(1, parseFloat($("secs").value) || 60), acc = Math.round(c.ok / E.length * 100), wcpm = Math.round(c.ok / (secs / 60));
+  $("stats").innerHTML = [["ok", acc + "%", "accuracy"], ["ok", wcpm, "WCPM"], ["sub", c.sub, "substitutions"], ["omit", c.omit, "omissions"], ["ins", c.ins, "insertions"]]
+    .map(([k, v, l]) => `<div class="stat ${k}"><b>${v}</b><span>${l}</span></div>`).join("");
+  const f = [];
+  if (flagged.length) f.push(`${flagged.length} substitution${flagged.length > 1 ? "s" : ""} sound${flagged.length > 1 ? "" : "s"} close to the target (${flagged.slice(0, 3).join(", ")}). Review the audio before counting ${flagged.length > 1 ? "these" : "this"} against the reader.`);
+  if (c.ins) f.push(`${c.ins} inserted word${c.ins > 1 ? "s" : ""}. Repeated words often mean a self-correction, which most fluency rubrics don't penalize.`);
+  if (c.omit) f.push(`${c.omit} omitted word${c.omit > 1 ? "s" : ""}. Short function words dropped mid-sentence can be reader or recognizer; check both.`);
+  if (!f.length) f.push("The transcript matches the passage word for word.");
+  $("findings").innerHTML = f.map(x => `<li>${esc(x)}</li>`).join("");
+}
+function load() { $("expected").value = SAMPLE_EXPECTED; $("heard").value = SAMPLE_HEARD; $("secs").value = 38; run(); }
+$("run").addEventListener("click", run);
+$("reset").addEventListener("click", load);
+load();
+</script>
+</body>
+</html>
